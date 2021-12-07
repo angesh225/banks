@@ -1,6 +1,6 @@
 # Banking System
 ## About
-This is a team based project for CS157A (Intro to DBMS) that utilizes MySQL as the DBMS, Java as the front-end, and JDBC as the connector in order to emulate a basic banking system based on the dataset provided below:
+This is a team based project that utilizes MySQL as the DBMS, Java as the front-end, and JDBC as the connector in order to emulate a basic banking system based on the dataset provided below:
 
 ## Setup
 This project uses Maven in order to inject our JDBC dependencies, so an IDE that allows for Maven projects (i.e: Eclipse) is preferred.
