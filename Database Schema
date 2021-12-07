@@ -1,0 +1,147 @@
+DROP DATABASE bank_system;
+CREATE DATABASE IF NOT EXISTS bank_system;
+USE bank_system;
+
+/* Delete the tables if they already exist */
+DROP TABLE IF EXISTS Users;
+DROP TABLE IF EXISTS Accounts;
+DROP TABLE IF EXISTS Transactions;
+DROP TABLE IF EXISTS Banks;
+DROP TABLE IF EXISTS Loans;
+DROP TABLE IF EXISTS UsersArchive;
+
+/* Create the schema for our tables */
+CREATE TABLE Users (
+    userID TINYINT UNSIGNED AUTO_INCREMENT,
+	firstName VARCHAR(36), lastName VARCHAR(36),
+	email VARCHAR(256), pw BINARY(32),
+	updatedAt TIMESTAMP,
+	PRIMARY KEY(userID),
+	UNIQUE KEY(email)
+);
+CREATE TABLE Banks (
+    bankName VARCHAR(256),
+	balance DECIMAL(15, 2),
+	PRIMARY KEY(bankName)
+);
+CREATE TABLE Accounts (
+    userID TINYINT UNSIGNED, bankName VARCHAR(256), accType VARCHAR(8),
+	balance DECIMAL(15, 2),
+	PRIMARY KEY(userID, bankName, accType),
+	FOREIGN KEY(userID) REFERENCES Users(userID),
+	FOREIGN KEY(bankName) REFERENCES Banks(bankName)
+);
+CREATE TABLE Transactions (
+    transID TINYINT UNSIGNED,
+	userID TINYINT UNSIGNED, bankName VARCHAR(256), accType VARCHAR(8),
+	transDateTime DATETIME,
+	location VARCHAR(256),
+	summary VARCHAR(256),
+	transType VARCHAR(10),
+	amount DECIMAL(15, 2),
+	netBalance DECIMAL(15, 2),
+	PRIMARY KEY(transID),
+	FOREIGN KEY(userID, bankName, accType) REFERENCES Accounts(userID, bankName, accType)
+);
+CREATE TABLE Loans (
+    loanID TINYINT UNSIGNED,
+	userID TINYINT UNSIGNED, bankName VARCHAR(256), accType VARCHAR(8),
+	amount DECIMAL(15, 2),
+	loanDate DATETIME, dueDate DATETIME,
+	PRIMARY KEY(loanID),
+	FOREIGN KEY(bankName) REFERENCES Banks(bankName),
+	FOREIGN KEY(userId, bankName, accType) REFERENCES Accounts(userID, bankName, accType)
+);
+CREATE TABLE ArchivedUsers (
+    userID TINYINT UNSIGNED,
+	firstName VARCHAR(36), lastName VARCHAR(36),
+	email VARCHAR(256), pw BINARY(32),
+	updatedAt TIMESTAMP,
+	PRIMARY KEY(userID)
+);
+
+/* Create the stored procedures */
+DELIMITER $$
+CREATE PROCEDURE CreateUser (firstName VARCHAR(36), lastName VARCHAR(36), email VARCHAR(256), pw BINARY(32))
+BEGIN
+    INSERT INTO Users(firstName, lastName, email, pw) VALUES(firstName, lastName, email, pw);
+END$$
+CREATE PROCEDURE GetUserID (email VARCHAR(256), pw BINARY(32), OUT userID TINYINT UNSIGNED)
+BEGIN
+    SELECT Users.userID INTO userID FROM Users WHERE Users.email=email AND Users.pw=pw;
+END$$
+CREATE PROCEDURE DeleteUser (userID TINYINT UNSIGNED)
+BEGIN
+    DELETE FROM Users WHERE Users.userID = userID;
+END$$
+CREATE PROCEDURE CreateBankAccount (bankName VARCHAR(256), accType VARCHAR(8), balance DECIMAL(15, 2), userID TINYINT UNSIGNED)
+BEGIN
+    INSERT INTO Accounts(bankName, accType, balance, userID) VALUES(bankName, accType, balance, userId);
+END$$
+CREATE PROCEDURE DeleteBankAccount (bankName VARCHAR(256), accType VARCHAR(8), userID TINYINT UNSIGNED)
+BEGIN
+    DELETE FROM Accounts WHERE Accounts.userID = userID AND Accounts.bankName = bankName AND Accounts.accType = accType;
+END$$
+CREATE PROCEDURE GetAllUserBankAccountsAtBank (bankName VARCHAR(256), userID TINYINT UNSIGNED)
+BEGIN
+    SELECT accType, balance FROM Accounts WHERE Accounts.bankName = bankName AND Accounts.userID = userID;
+END$$
+CREATE PROCEDURE GetBankAccountBalance (bankName VARCHAR(256), accType VARCHAR(8), userID TINYINT UNSIGNED)
+BEGIN
+    SELECT balance FROM Accounts WHERE Accounts.bankName = bankName AND Accounts.accType = accType AND Accounts.userID = userID;
+END$$
+CREATE PROCEDURE CalculateNetWorth (userID TINYINT UNSIGNED)
+BEGIN
+    SELECT SUM(balance) as NetWorth FROM Accounts WHERE Accounts.userID = userID;
+END$$
+CREATE PROCEDURE GetAllBanks ()
+BEGIN
+    SELECT bankName, balance from Banks;
+END$$
+DELIMITER ;
+
+/* Create triggers */
+DELIMITER $$
+CREATE TRIGGER update_account_on_new_transaction
+AFTER INSERT ON Transactions
+FOR EACH ROW
+BEGIN
+    UPDATE Accounts a SET a.balance =
+    CASE new.transType
+   	 WHEN "Withdrawal" THEN a.balance - new.amount
+   	 WHEN "Deposit" THEN a.balance + new.amount
+    END
+    WHERE a.userID = new.userID AND a.bankName = new.bankName AND a.accType = new.accType;
+END $$
+DELIMITER ;
+
+DELIMITER $$
+CREATE TRIGGER update_account_on_new_loan
+AFTER INSERT ON Loans
+FOR EACH ROW
+BEGIN
+    IF new.accType = "Loans"
+   	 THEN UPDATE Accounts a SET a.balance = a.balance + new.amount
+    	WHERE a.userID = new.userID AND a.bankName = new.bankName AND a.accType = new.accType;
+    ELSE
+   	 SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = "Not a Loans account; insertion failed.";
+    END IF;
+END $$
+DELIMITER ;
+
+DELIMITER $$
+CREATE TRIGGER update_account_on_update_loan
+AFTER UPDATE ON Loans
+FOR EACH ROW
+BEGIN
+    IF new.accType = "Loans"
+   	 THEN UPDATE Accounts a SET a.balance = a.balance + new.amount - old.amount
+   	 WHERE a.userID = new.userID AND a.bankName = new.bankName AND a.accType = new.accType;
+   	 IF new.amount = 0
+   		 THEN DELETE FROM Loans WHERE Loans.userID = new.userID AND Loans.bankName = new.bankName AND Loans.accType = new.accType;
+   	 END IF;
+    ELSE
+   	 SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = "Not a Loans account; insertion failed.";
+    END IF;
+END $$
+DELIMITER ;
